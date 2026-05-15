@@ -8,9 +8,25 @@ from .. import backend
 from ..config import DEFAULT_WORKSPACE, STARTER_EXACT, saved_keyword_text
 from .components import card, empty_figure, results_table, section_heading
 
-_GEMINI_READY = bool(os.environ.get("GEMINI_API_KEY", "").strip())
 _DEFAULT_EMAIL = os.environ.get("DEFAULT_EMAIL", "")
-_GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
+
+def _detect_default_provider() -> tuple:
+    if os.environ.get("OPENAI_API_KEY", "").strip():
+        return "openai", os.environ["OPENAI_API_KEY"].strip()
+    if os.environ.get("ANTHROPIC_API_KEY", "").strip():
+        return "anthropic", os.environ["ANTHROPIC_API_KEY"].strip()
+    return "gemini", os.environ.get("GEMINI_API_KEY", "").strip()
+
+_DEFAULT_PROVIDER, _DEFAULT_KEY = _detect_default_provider()
+_AI_READY = bool(_DEFAULT_KEY)
+
+_PROVIDER_PLACEHOLDERS = {
+    "openai":    ("sk-…  (platform.openai.com)", "gpt-4o-mini"),
+    "gemini":    ("AIzaSy…  (aistudio.google.com)", "gemini-2.5-flash"),
+    "anthropic": ("sk-ant-…  (console.anthropic.com)", "claude-haiku-4-5-20251001"),
+    "mistral":   ("…  (console.mistral.ai)", "mistral-small-latest"),
+    "cohere":    ("…  (dashboard.cohere.com)", "command-r"),
+}
 
 
 def stores() -> list:
@@ -32,8 +48,8 @@ def _header() -> html.Header:
             ]),
             html.Div(id="status-pills", className="status-pills", children=[
                 html.Span(
-                    "✓ AI ready" if _GEMINI_READY else "AI: add key below",
-                    className="pill good" if _GEMINI_READY else "pill warn",
+                    "✓ AI ready" if _AI_READY else "AI: add key below",
+                    className="pill good" if _AI_READY else "pill warn",
                 ),
             ]),
         ],
@@ -98,24 +114,40 @@ def _setup_section() -> html.Div:
                 html.Div(id="profile-message", className="inline-msg"),
             ]),
 
-            # ── Gemini key (only shown when not pre-configured) ───────────
-            html.Div(
-                className="panel key-panel",
-                style={"display": "none" if _GEMINI_READY else "flex"},
-                children=[
-                    html.Span("🔑  Gemini API key", className="key-label"),
-                    dcc.Input(
-                        id="gemini-key",
-                        value=_GEMINI_KEY,
-                        type="password",
-                        placeholder="AIzaSy… (free key at aistudio.google.com)",
-                        className="input",
-                        style={"flex": "1"},
-                    ),
-                ],
-            ) if not _GEMINI_READY else dcc.Input(
-                id="gemini-key", value=_GEMINI_KEY, type="hidden",
-            ),
+            # ── AI config bar ─────────────────────────────────────────────
+            html.Div(className="panel key-panel", children=[
+                html.Span("🤖  AI", className="key-label"),
+                dcc.Dropdown(
+                    id="ai-provider",
+                    value=_DEFAULT_PROVIDER,
+                    clearable=False,
+                    className="run-dropdown",
+                    style={"minWidth": "130px"},
+                    options=[
+                        {"label": "OpenAI",    "value": "openai"},
+                        {"label": "Gemini",    "value": "gemini"},
+                        {"label": "Anthropic", "value": "anthropic"},
+                        {"label": "Mistral",   "value": "mistral"},
+                        {"label": "Cohere",    "value": "cohere"},
+                    ],
+                ),
+                dcc.Input(
+                    id="ai-model",
+                    value="",
+                    type="text",
+                    placeholder=_PROVIDER_PLACEHOLDERS[_DEFAULT_PROVIDER][1],
+                    className="input",
+                    style={"flex": "1", "minWidth": "160px"},
+                ),
+                dcc.Input(
+                    id="ai-key",
+                    value=_DEFAULT_KEY,
+                    type="password",
+                    placeholder=_PROVIDER_PLACEHOLDERS[_DEFAULT_PROVIDER][0],
+                    className="input",
+                    style={"flex": "2"},
+                ),
+            ]),
 
             # ── Run bar ───────────────────────────────────────────────────
             html.Div(className="run-bar panel", children=[

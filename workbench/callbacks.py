@@ -85,18 +85,29 @@ def register_callbacks(app) -> None:
     # ── Save profile ──────────────────────────────────────────────────────────
 
     @app.callback(
+        Output("ai-model", "placeholder"),
+        Input("ai-provider", "value"),
+    )
+    def update_model_placeholder(provider):
+        from .ui.layout import _PROVIDER_PLACEHOLDERS
+        _, model_default = _PROVIDER_PLACEHOLDERS.get(provider or "gemini", ("", ""))
+        return model_default
+
+    @app.callback(
         Output("profile-store", "data"),
         Output("profile-message", "children"),
         Input("load-profile", "n_clicks"),
         State("profile-upload", "contents"),
         State("profile-upload", "filename"),
         State("profile-text", "value"),
-        State("gemini-key", "value"),
+        State("ai-provider", "value"),
+        State("ai-model", "value"),
+        State("ai-key", "value"),
         prevent_initial_call=True,
     )
-    def save_profile(_, contents, filename, pasted, gemini_key):
+    def save_profile(_, contents, filename, pasted, provider, model, ai_key):
         try:
-            backend.configure_ai(gemini_key or "")
+            backend.configure_ai(provider or "gemini", model or "", ai_key or "")
             if contents and filename:
                 text = backend.extract_profile_from_upload(contents, filename)
                 src = filename
@@ -115,16 +126,19 @@ def register_callbacks(app) -> None:
         Input("ai-suggest-keywords", "n_clicks"),
         State("profile-store", "data"),
         State("exact-keywords", "value"),
-        State("gemini-key", "value"),
+        State("ai-provider", "value"),
+        State("ai-model", "value"),
+        State("ai-key", "value"),
         prevent_initial_call=True,
     )
-    def ai_suggest(_, profile, current_kw, gemini_key):
+    def ai_suggest(_, profile, current_kw, provider, model, ai_key):
         profile_text = (profile or {}).get("text", "")
         if not profile_text:
             return no_update, "⚠ Save a profile first (click '📄 From resume')."
         try:
+            backend.configure_ai(provider or "gemini", model or "", ai_key or "")
             existing = backend.parse_lines(current_kw)
-            suggestions = backend.suggest_keywords(profile_text, existing, gemini_key or "")
+            suggestions = backend.suggest_keywords(profile_text, existing)
             merged = list(dict.fromkeys(existing + suggestions))
             return "\n".join(merged), f"✓ Added {len(suggestions)} AI suggestions."
         except Exception as exc:
@@ -145,23 +159,25 @@ def register_callbacks(app) -> None:
         State("jobspy-sites",  "value"),
         State("notify-email",  "value"),
         State("profile-store", "data"),
-        State("gemini-key",    "value"),
+        State("ai-provider",   "value"),
+        State("ai-model",      "value"),
+        State("ai-key",        "value"),
         prevent_initial_call=True,
     )
-    def start_search(_, kw_text, days_old, job_type, run_options, jobspy_sites, notify_email, profile, gemini_key):
+    def start_search(_, kw_text, days_old, job_type, run_options, jobspy_sites, notify_email, profile, provider, model, ai_key):
         keywords = backend.parse_lines(kw_text)
         if not keywords:
             return no_update, "⚠ Add at least one keyword first.", _HIDE, no_update
         sites = ",".join(jobspy_sites) if jobspy_sites else _JOBSPY_SITES
         profile_text = (profile or {}).get("text", "")
         opts = run_options or []
+        backend.configure_ai(provider or "gemini", model or "", ai_key or "")
         backend.start_broad_search_bg(
             DEFAULT_WORKSPACE, keywords, int(days_old or 30),
             _CHUNK_SIZE, _TIMEOUT_MIN, _REQUEST_DELAY, _REQUEST_TIMEOUT, sites,
             "strict_dates" in opts,
             "skip_empty" in opts,
             profile_text=profile_text,
-            gemini_key=gemini_key or "",
             notify_email=notify_email or "",
             is_remote="remote_only" in opts,
             job_type=job_type or "",
@@ -311,10 +327,9 @@ def register_callbacks(app) -> None:
         State("results-table",   "derived_virtual_data"),
         State("results-table",   "selected_rows"),
         State("profile-store",   "data"),
-        State("gemini-key",      "value"),
         prevent_initial_call=True,
     )
-    def ai_deep_dive(_, __, payload, visible_rows, selected_rows, profile, gemini_key):
+    def ai_deep_dive(_, __, payload, visible_rows, selected_rows, profile):
         profile_text = (profile or {}).get("text", "")
         if not profile_text:
             return "Save a profile first (go back to Search and click '📄 From resume')."
@@ -325,8 +340,8 @@ def register_callbacks(app) -> None:
         job = rows[min(idx, len(rows) - 1)]
         try:
             if ctx.triggered_id == "ai-cover-letter":
-                return backend.draft_cover_letter(job, profile_text, gemini_key or "")
-            return backend.explain_fit(job, profile_text, gemini_key or "")
+                return backend.draft_cover_letter(job, profile_text)
+            return backend.explain_fit(job, profile_text)
         except Exception as exc:
             return f"AI error: {exc}"
 

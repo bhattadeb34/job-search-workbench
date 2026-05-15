@@ -1,4 +1,4 @@
-"""AI helpers — uses Gemini REST API directly (no google-generativeai package needed)."""
+"""AI helpers — multi-provider via LangChain (OpenAI, Gemini, Anthropic, Mistral, Cohere)."""
 import io
 import os
 from typing import List
@@ -7,23 +7,47 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
-_GEMINI_URL = (
-    "https://generativelanguage.googleapis.com/v1beta"
-    "/models/gemini-2.5-flash:generateContent"
-)
+_llm = None  # set by configure_ai()
+
+_PROVIDER_DEFAULTS = {
+    "openai":    "gpt-4o-mini",
+    "gemini":    "gemini-2.5-flash",
+    "anthropic": "claude-haiku-4-5-20251001",
+    "mistral":   "mistral-small-latest",
+    "cohere":    "command-r",
+}
+
+
+def configure_ai(provider: str, model: str, api_key: str) -> None:
+    global _llm
+    if not api_key:
+        _llm = None
+        return
+    m = model.strip() or _PROVIDER_DEFAULTS.get(provider, "")
+    if provider == "openai":
+        from langchain_openai import ChatOpenAI
+        _llm = ChatOpenAI(model=m, api_key=api_key, temperature=0.3)
+    elif provider == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        _llm = ChatGoogleGenerativeAI(model=m, google_api_key=api_key, temperature=0.3)
+    elif provider == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+        _llm = ChatAnthropic(model=m, api_key=api_key, temperature=0.3)
+    elif provider == "mistral":
+        from langchain_mistralai import ChatMistralAI
+        _llm = ChatMistralAI(model=m, api_key=api_key, temperature=0.3)
+    elif provider == "cohere":
+        from langchain_cohere import ChatCohere
+        _llm = ChatCohere(model=m, cohere_api_key=api_key, temperature=0.3)
+    else:
+        raise ValueError(f"Unknown provider: {provider}")
 
 
 def _generate(prompt: str) -> str:
-    key = os.environ.get("GEMINI_API_KEY", "")
-    if not key:
-        raise RuntimeError("GEMINI_API_KEY not configured.")
-    r = requests.post(
-        f"{_GEMINI_URL}?key={key}",
-        json={"contents": [{"parts": [{"text": prompt}]}]},
-        timeout=90,
-    )
-    r.raise_for_status()
-    return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    if _llm is None:
+        raise RuntimeError("AI not configured — select a provider and enter its API key.")
+    from langchain_core.messages import HumanMessage
+    return _llm.invoke([HumanMessage(content=prompt)]).content
 
 
 # ── Profile extraction ────────────────────────────────────────────────────────
@@ -119,7 +143,6 @@ def score_jobs(df: pd.DataFrame, profile_text: str, max_jobs: int = 40) -> pd.Da
 # ── Keyword quality review ────────────────────────────────────────────────────
 
 def review_keywords(keywords: List[str], profile_text: str = "") -> dict:
-    """Return structured keyword quality feedback."""
     import json as _json
     kw_block = "\n".join(f"- {k}" for k in keywords)
     profile_block = f"\nCandidate profile (for context):\n{profile_text[:1500]}" if profile_text else ""
@@ -136,12 +159,10 @@ def review_keywords(keywords: List[str], profile_text: str = "") -> dict:
         "}"
     )
     raw = _generate(prompt)
-    # Strip markdown fences if present
     raw = raw.strip().strip("```json").strip("```").strip()
     try:
         return _json.loads(raw)
     except Exception:
-        # Fallback: return minimal structure
         return {"quality_score": None, "summary": raw[:300], "weak": [], "redundant": [], "suggestions": []}
 
 

@@ -14,6 +14,11 @@ import pandas as pd
 
 import sim_eng_ai as ai
 
+# ── AI provider state ─────────────────────────────────────────────────────────
+_PROVIDER: str = "gemini"
+_AI_MODEL: str = ""
+_AI_KEY: str = ""
+
 # ── Live search state (single-user local app) ─────────────────────────────────
 _STATE: dict = {
     "phase": "idle", "progress": 0, "message": "Ready",
@@ -54,7 +59,7 @@ def _parse_progress(line: str, n: int) -> tuple:
 
 
 def _bg_run(script: Path, env: dict, timeout_min: int, broad_output: Path,
-            profile_text: str, gemini_key: str, notify_email: str) -> None:
+            profile_text: str, notify_email: str) -> None:
     proc = subprocess.Popen(
         [sys.executable, str(script)],
         cwd=str(APP_DIR),
@@ -83,10 +88,9 @@ def _bg_run(script: Path, env: dict, timeout_min: int, broad_output: Path,
 
     payload = result_payload(broad_output)
 
-    # Auto-score jobs if profile is loaded
-    if profile_text and gemini_key:
+    # Auto-score jobs if profile and AI key are loaded
+    if profile_text and _AI_KEY:
         try:
-            configure_ai(gemini_key)
             df = pd.DataFrame(payload.get("rows", []))
             if not df.empty:
                 with _LOCK:
@@ -120,7 +124,7 @@ def start_broad_search_bg(
     chunk_size: int, timeout_min: int, request_delay: float,
     request_timeout: int, jobspy_sites: str,
     strict_dates: bool, skip_empty: bool,
-    profile_text: str = "", gemini_key: str = "",
+    profile_text: str = "",
     notify_email: str = "",
     is_remote: bool = False,
     job_type: str = "",
@@ -141,6 +145,9 @@ def start_broad_search_bg(
         "SIM_ENG_JOB_TYPE": job_type or "",
         "PYTHONUNBUFFERED": "1",
         "PATH": os.environ.get("PATH", ""),
+        "SIM_ENG_AI_PROVIDER": _PROVIDER,
+        "SIM_ENG_AI_MODEL": _AI_MODEL,
+        "SIM_ENG_AI_KEY": _AI_KEY,
     }
     with _LOCK:
         _STATE.update({
@@ -149,7 +156,7 @@ def start_broad_search_bg(
         })
     t = threading.Thread(
         target=_bg_run,
-        args=(JOB_SCRIPT, env, timeout_min, broad_output, profile_text, gemini_key, notify_email),
+        args=(JOB_SCRIPT, env, timeout_min, broad_output, profile_text, notify_email),
         daemon=True,
     )
     t.start()
@@ -460,10 +467,19 @@ def send_results_email(to_email: str, csv_path: Path, df: "pd.DataFrame | None" 
         return f"Email failed: {exc}"
 
 
-def configure_ai(api_key: str = "") -> bool:
+def configure_ai(provider: str = "", model: str = "", api_key: str = "") -> bool:
+    global _PROVIDER, _AI_MODEL, _AI_KEY
+    if provider:
+        _PROVIDER = provider
+    if model is not None:
+        _AI_MODEL = model
     if api_key:
-        os.environ["GEMINI_API_KEY"] = api_key.strip()
-    return bool(os.environ.get("GEMINI_API_KEY", "").strip())
+        _AI_KEY = api_key.strip()
+    try:
+        ai.configure_ai(_PROVIDER, _AI_MODEL, _AI_KEY)
+        return bool(_AI_KEY)
+    except Exception:
+        return False
 
 
 def extract_profile_from_upload(contents: str, filename: str) -> str:
@@ -487,28 +503,23 @@ def fetch_profile_from_url(url: str) -> str:
     return ai.fetch_url_text(url)
 
 
-def suggest_keywords(profile_text: str, existing: List[str], api_key: str = "") -> List[str]:
-    configure_ai(api_key)
+def suggest_keywords(profile_text: str, existing: List[str]) -> List[str]:
     return ai.suggest_keywords(profile_text, existing)
 
 
-def review_keywords(keywords: List[str], profile_text: str, api_key: str = "") -> dict:
-    configure_ai(api_key)
+def review_keywords(keywords: List[str], profile_text: str) -> dict:
     return ai.review_keywords(keywords, profile_text)
 
 
-def score_jobs(payload: Dict[str, object], profile_text: str, api_key: str = "", max_jobs: int = 30) -> Dict[str, object]:
-    configure_ai(api_key)
+def score_jobs(payload: Dict[str, object], profile_text: str, max_jobs: int = 30) -> Dict[str, object]:
     df = pd.DataFrame(payload.get("rows", []))
     scored = ai.score_jobs(df, profile_text, max_jobs=max_jobs)
     return dataframe_payload(scored)
 
 
-def draft_cover_letter(job: dict, profile_text: str, api_key: str = "") -> str:
-    configure_ai(api_key)
+def draft_cover_letter(job: dict, profile_text: str) -> str:
     return ai.draft_cover_letter(job, profile_text)
 
 
-def explain_fit(job: dict, profile_text: str, api_key: str = "") -> str:
-    configure_ai(api_key)
+def explain_fit(job: dict, profile_text: str) -> str:
     return ai.explain_fit(job, profile_text)
