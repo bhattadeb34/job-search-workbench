@@ -85,13 +85,54 @@ def register_callbacks(app) -> None:
     # ── Save profile ──────────────────────────────────────────────────────────
 
     @app.callback(
+        Output("ai-model", "options"),
+        Output("ai-model", "value"),
         Output("ai-model", "placeholder"),
+        Output("ai-key", "placeholder"),
         Input("ai-provider", "value"),
+        State("ai-model", "value"),
     )
-    def update_model_placeholder(provider):
+    def update_model_choices(provider, current_model):
         from .ui.layout import _PROVIDER_PLACEHOLDERS
-        _, model_default = _PROVIDER_PLACEHOLDERS.get(provider or "gemini", ("", ""))
-        return model_default
+        provider = provider or "gemini"
+        key_placeholder, model_default = _PROVIDER_PLACEHOLDERS.get(provider, ("", ""))
+        options = backend.default_ai_model_options(provider)
+        values = {option["value"] for option in options}
+        value = current_model if current_model in values else (options[0]["value"] if options else "")
+        return options, value, model_default, key_placeholder
+
+    @app.callback(
+        Output("ai-config-msg", "children"),
+        Output("status-pills", "children", allow_duplicate=True),
+        Output("ai-model", "options", allow_duplicate=True),
+        Output("ai-model", "value", allow_duplicate=True),
+        Input("test-ai", "n_clicks"),
+        State("ai-provider", "value"),
+        State("ai-model", "value"),
+        State("ai-key", "value"),
+        prevent_initial_call=True,
+    )
+    def test_ai(_, provider, model, ai_key):
+        provider = provider or "gemini"
+        try:
+            options = backend.list_ai_models(provider, ai_key or "")
+            values = [option["value"] for option in options]
+            selected_model = model if model in values else (values[0] if values else model)
+            model_label = (selected_model or "").strip() or "default model"
+            backend.test_ai_connection(provider, selected_model or "", ai_key or "")
+            return (
+                f"✓ {provider.title()} connected using {model_label}.",
+                [html.Span("✓ AI connected", className="pill good")],
+                options,
+                selected_model,
+            )
+        except Exception as exc:
+            return (
+                f"AI test failed: {exc}",
+                [html.Span("AI needs attention", className="pill danger")],
+                no_update,
+                no_update,
+            )
 
     @app.callback(
         Output("profile-store", "data"),

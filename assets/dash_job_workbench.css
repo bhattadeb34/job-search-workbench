@@ -233,19 +233,24 @@ label {
 .upload-box span   { text-decoration: underline; }
 .save-btn { width: 100%; }
 
-/* ── Gemini key panel ───────────────────────────────────────────────────── */
+/* ── AI key panel ───────────────────────────────────────────────────────── */
 
 .key-panel {
   display: flex;
   align-items: center;
   gap: 14px;
   padding: 14px 20px;
+  flex-wrap: wrap;
 }
 .key-label {
   font-weight: 800;
   color: var(--muted);
   white-space: nowrap;
   font-size: 13px;
+}
+.ai-config-msg {
+  flex-basis: 100%;
+  padding-left: 36px;
 }
 
 /* ── Run bar ────────────────────────────────────────────────────────────── */

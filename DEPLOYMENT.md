@@ -42,7 +42,7 @@ coverage.
 
 ## Optional environment variables
 
-- `GEMINI_API_KEY`: enables AI keyword suggestions, AI scoring, fit analysis, and cover letters.
+- `OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, or `COHERE_API_KEY`: optionally preloads an AI provider key for keyword suggestions, AI scoring, fit analysis, and cover letters.
 - `PORT`: normally provided by the hosting platform.
 
 ## Render quick setup
@@ -53,7 +53,7 @@ coverage.
 4. Runtime: Python.
 5. Build command: `pip install -r requirements.txt`.
 6. Start command: `gunicorn app:server --bind 0.0.0.0:$PORT --workers 2 --timeout 180`.
-7. Add `GEMINI_API_KEY` under Environment if you want AI features.
+7. Add an AI provider key under Environment if you want AI features preconfigured, such as `OPENAI_API_KEY` or `GEMINI_API_KEY`.
 8. Deploy.
 
 ## How to confirm it is live
@@ -62,4 +62,4 @@ coverage.
 - The public URL should load the Job Search Workbench UI.
 - The logs should include a successful Gunicorn boot with no import errors.
 - In the app, enter one keyword and confirm the keyword preview updates.
-- If `GEMINI_API_KEY` is set, paste a profile and confirm AI buttons respond.
+- If an AI key is set, paste a profile and confirm AI buttons respond. Otherwise, enter a key in the app and click `Test AI`.

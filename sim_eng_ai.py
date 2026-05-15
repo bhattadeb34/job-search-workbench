@@ -1,4 +1,4 @@
-"""AI helpers — multi-provider via LangChain (OpenAI, Gemini, Anthropic, Mistral, Cohere)."""
+"""AI helpers - direct provider API calls."""
 import io
 import os
 from typing import List
@@ -7,7 +7,9 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
-_llm = None  # set by configure_ai()
+_provider = ""
+_model = ""
+_api_key = ""
 
 _PROVIDER_DEFAULTS = {
     "openai":    "gpt-4o-mini",
@@ -19,35 +21,176 @@ _PROVIDER_DEFAULTS = {
 
 
 def configure_ai(provider: str, model: str, api_key: str) -> None:
-    global _llm
-    if not api_key:
-        _llm = None
+    global _provider, _model, _api_key
+    _provider = (provider or "").strip().lower()
+    _api_key = (api_key or "").strip()
+    if not _api_key:
         return
-    m = model.strip() or _PROVIDER_DEFAULTS.get(provider, "")
-    if provider == "openai":
-        from langchain_openai import ChatOpenAI
-        _llm = ChatOpenAI(model=m, api_key=api_key, temperature=0.3)
-    elif provider == "gemini":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        _llm = ChatGoogleGenerativeAI(model=m, google_api_key=api_key, temperature=0.3)
-    elif provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        _llm = ChatAnthropic(model=m, api_key=api_key, temperature=0.3)
-    elif provider == "mistral":
-        from langchain_mistralai import ChatMistralAI
-        _llm = ChatMistralAI(model=m, api_key=api_key, temperature=0.3)
-    elif provider == "cohere":
-        from langchain_cohere import ChatCohere
-        _llm = ChatCohere(model=m, cohere_api_key=api_key, temperature=0.3)
-    else:
-        raise ValueError(f"Unknown provider: {provider}")
+    _model = (model or "").strip() or _PROVIDER_DEFAULTS.get(_provider, "")
+    if _provider in _PROVIDER_DEFAULTS:
+        return
+    raise ValueError(f"Unknown provider: {provider}")
+
+
+def _provider_error(response: requests.Response) -> str:
+    try:
+        payload = response.json()
+        detail = payload.get("error", {}).get("message") or payload.get("message")
+    except Exception:
+        detail = response.text[:300]
+    return detail or f"Provider returned HTTP {response.status_code}."
+
+
+def _openai_generate(prompt: str) -> str:
+    if not _api_key:
+        raise RuntimeError("OpenAI API key is missing.")
+    payload = {
+        "model": _model or _PROVIDER_DEFAULTS["openai"],
+        "input": prompt,
+        "max_output_tokens": 1200,
+    }
+    response = requests.post(
+        "https://api.openai.com/v1/responses",
+        headers={
+            "Authorization": f"Bearer {_api_key}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=60,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(_provider_error(response))
+    data = response.json()
+    if data.get("output_text"):
+        return data["output_text"]
+    chunks = []
+    for item in data.get("output", []):
+        for content in item.get("content", []):
+            text = content.get("text")
+            if text:
+                chunks.append(text)
+    return "\n".join(chunks).strip()
+
+
+def _gemini_generate(prompt: str) -> str:
+    response = requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{_model}:generateContent",
+        params={"key": _api_key},
+        json={
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": 1200},
+        },
+        timeout=60,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(_provider_error(response))
+    data = response.json()
+    chunks = []
+    for candidate in data.get("candidates", []):
+        for part in candidate.get("content", {}).get("parts", []):
+            text = part.get("text")
+            if text:
+                chunks.append(text)
+    return "\n".join(chunks).strip()
+
+
+def _anthropic_generate(prompt: str) -> str:
+    response = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": _api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": _model,
+            "max_tokens": 1200,
+            "messages": [{"role": "user", "content": prompt}],
+        },
+        timeout=60,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(_provider_error(response))
+    data = response.json()
+    chunks = []
+    for item in data.get("content", []):
+        text = item.get("text")
+        if text:
+            chunks.append(text)
+    return "\n".join(chunks).strip()
+
+
+def _mistral_generate(prompt: str) -> str:
+    response = requests.post(
+        "https://api.mistral.ai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {_api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": _model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 1200,
+        },
+        timeout=60,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(_provider_error(response))
+    return (
+        response.json()
+        .get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "")
+        .strip()
+    )
+
+
+def _cohere_generate(prompt: str) -> str:
+    response = requests.post(
+        "https://api.cohere.com/v2/chat",
+        headers={
+            "Authorization": f"Bearer {_api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": _model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 1200,
+        },
+        timeout=60,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(_provider_error(response))
+    content = response.json().get("message", {}).get("content", [])
+    chunks = []
+    for item in content:
+        text = item.get("text")
+        if text:
+            chunks.append(text)
+    return "\n".join(chunks).strip()
 
 
 def _generate(prompt: str) -> str:
-    if _llm is None:
+    if not _api_key:
         raise RuntimeError("AI not configured — select a provider and enter its API key.")
-    from langchain_core.messages import HumanMessage
-    return _llm.invoke([HumanMessage(content=prompt)]).content
+    if _provider == "openai":
+        return _openai_generate(prompt)
+    if _provider == "gemini":
+        return _gemini_generate(prompt)
+    if _provider == "anthropic":
+        return _anthropic_generate(prompt)
+    if _provider == "mistral":
+        return _mistral_generate(prompt)
+    if _provider == "cohere":
+        return _cohere_generate(prompt)
+    raise RuntimeError(f"Unknown AI provider: {_provider or '(none)'}")
+
+
+def test_connection() -> str:
+    response = _generate(
+        "Reply with exactly this text and nothing else: AI connection OK"
+    )
+    return str(response).strip()
 
 
 # ── Profile extraction ────────────────────────────────────────────────────────

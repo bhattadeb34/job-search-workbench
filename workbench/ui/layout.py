@@ -29,6 +29,11 @@ _PROVIDER_PLACEHOLDERS = {
 }
 
 
+def _default_model_value(provider: str) -> str:
+    options = backend.default_ai_model_options(provider)
+    return options[0]["value"] if options else ""
+
+
 def stores() -> list:
     return [
         dcc.Store(id="results-store", data=None),
@@ -131,12 +136,14 @@ def _setup_section() -> html.Div:
                         {"label": "Cohere",    "value": "cohere"},
                     ],
                 ),
-                dcc.Input(
+                dcc.Dropdown(
                     id="ai-model",
-                    value="",
-                    type="text",
+                    value=_default_model_value(_DEFAULT_PROVIDER),
+                    clearable=False,
+                    searchable=True,
+                    options=backend.default_ai_model_options(_DEFAULT_PROVIDER),
                     placeholder=_PROVIDER_PLACEHOLDERS[_DEFAULT_PROVIDER][1],
-                    className="input",
+                    className="run-dropdown model-dropdown",
                     style={"flex": "1", "minWidth": "160px"},
                 ),
                 dcc.Input(
@@ -146,6 +153,13 @@ def _setup_section() -> html.Div:
                     placeholder=_PROVIDER_PLACEHOLDERS[_DEFAULT_PROVIDER][0],
                     className="input",
                     style={"flex": "2"},
+                ),
+                html.Button("Test AI", id="test-ai", n_clicks=0,
+                            className="secondary-button small-btn"),
+                html.Div(
+                    id="ai-config-msg",
+                    className="inline-msg ai-config-msg",
+                    children="AI is ready." if _AI_READY else "Enter a key, then test it.",
                 ),
             ]),
 

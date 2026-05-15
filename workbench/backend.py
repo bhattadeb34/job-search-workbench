@@ -3,6 +3,7 @@ import io
 import json
 import os
 import re
+import requests
 import subprocess
 import sys
 import threading
@@ -19,6 +20,19 @@ _PROVIDER: str = "gemini"
 _AI_MODEL: str = ""
 _AI_KEY: str = ""
 
+_PROVIDER_MODEL_FALLBACKS: Dict[str, List[str]] = {
+    "openai": ["gpt-4o-mini", "gpt-4o"],
+    "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"],
+    "anthropic": ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929"],
+    "mistral": ["mistral-small-latest", "mistral-medium-latest", "mistral-large-latest"],
+    "cohere": ["command-r", "command-r-plus"],
+}
+
+_OPENAI_NON_TEXT_TERMS = (
+    "audio", "dall", "embedding", "image", "moderation", "realtime",
+    "search", "speech", "tts", "transcribe", "translation", "whisper",
+)
+
 # ── Live search state (single-user local app) ─────────────────────────────────
 _STATE: dict = {
     "phase": "idle", "progress": 0, "message": "Ready",
@@ -30,6 +44,55 @@ _LOCK = threading.Lock()
 def get_state() -> dict:
     with _LOCK:
         return dict(_STATE)
+
+
+def _model_options(model_ids: List[str]) -> List[dict]:
+    seen = []
+    for model_id in model_ids:
+        if model_id and model_id not in seen:
+            seen.append(model_id)
+    return [{"label": model_id, "value": model_id} for model_id in seen]
+
+
+def default_ai_model_options(provider: str = "") -> List[dict]:
+    return _model_options(_PROVIDER_MODEL_FALLBACKS.get(provider or "gemini", []))
+
+
+def _is_openai_text_model(model_id: str) -> bool:
+    low = model_id.lower()
+    if any(term in low for term in _OPENAI_NON_TEXT_TERMS):
+        return False
+    return low.startswith(("gpt-", "o1", "o3", "o4", "o5"))
+
+
+def list_ai_models(provider: str = "", api_key: str = "") -> List[dict]:
+    provider = (provider or _PROVIDER or "gemini").lower()
+    if provider != "openai":
+        return default_ai_model_options(provider)
+    key = (api_key or _AI_KEY or "").strip()
+    if not key:
+        raise ValueError("Enter an OpenAI API key first.")
+    response = requests.get(
+        "https://api.openai.com/v1/models",
+        headers={"Authorization": f"Bearer {key}"},
+        timeout=30,
+    )
+    if response.status_code == 401:
+        raise ValueError("OpenAI rejected this API key.")
+    if response.status_code >= 400:
+        try:
+            detail = response.json().get("error", {}).get("message")
+        except Exception:
+            detail = response.text[:300]
+        raise ValueError(detail or f"OpenAI returned HTTP {response.status_code}.")
+    models = sorted(
+        response.json().get("data", []),
+        key=lambda item: int(item.get("created") or 0),
+        reverse=True,
+    )
+    model_ids = [item.get("id", "") for item in models]
+    text_models = [model_id for model_id in model_ids if _is_openai_text_model(model_id)]
+    return _model_options(text_models[:10] or _PROVIDER_MODEL_FALLBACKS["openai"])
 
 
 def _parse_progress(line: str, n: int) -> tuple:
@@ -467,7 +530,7 @@ def send_results_email(to_email: str, csv_path: Path, df: "pd.DataFrame | None" 
         return f"Email failed: {exc}"
 
 
-def configure_ai(provider: str = "", model: str = "", api_key: str = "") -> bool:
+def configure_ai(provider: str = "", model: str = "", api_key: str = "", raise_errors: bool = False) -> bool:
     global _PROVIDER, _AI_MODEL, _AI_KEY
     if provider:
         _PROVIDER = provider
@@ -479,7 +542,17 @@ def configure_ai(provider: str = "", model: str = "", api_key: str = "") -> bool
         ai.configure_ai(_PROVIDER, _AI_MODEL, _AI_KEY)
         return bool(_AI_KEY)
     except Exception:
+        if raise_errors:
+            raise
         return False
+
+
+def test_ai_connection(provider: str = "", model: str = "", api_key: str = "") -> str:
+    if not (api_key or _AI_KEY):
+        raise ValueError("Enter an API key first.")
+    configure_ai(provider or _PROVIDER, model or _AI_MODEL, api_key or _AI_KEY, raise_errors=True)
+    reply = ai.test_connection()
+    return reply or "AI connection OK"
 
 
 def extract_profile_from_upload(contents: str, filename: str) -> str:

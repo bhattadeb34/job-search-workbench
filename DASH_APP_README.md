@@ -3,9 +3,10 @@
 Run the Dash version:
 
 ```bash
-cd /Users/dxb5775/Downloads/job-search-workbench
-/usr/local/bin/python3 -m pip install -r requirements.txt
-/usr/local/bin/python3 dash_job_workbench.py
+git clone https://github.com/bhattadeb34/job-search-workbench.git
+cd job-search-workbench
+python -m pip install -r requirements.txt
+python app.py
 ```
 
 Then open:
@@ -16,7 +17,7 @@ http://127.0.0.1:8050
 
 The Dash app uses a frontend/backend split:
 
-- Launcher: `dash_job_workbench.py`
+- Launcher: `app.py`
 - App factory: `workbench/app.py`
 - Layout: `workbench/ui/layout.py`
 - Components: `workbench/ui/components.py`
@@ -47,15 +48,26 @@ The primary app flow is:
 
 ## AI features
 
-AI features need a Gemini API key. You can either:
+AI features need an API key from one of the supported providers:
+
+- OpenAI
+- Gemini
+- Anthropic
+- Mistral
+- Cohere
+
+You can either:
 
 - paste it into the sidebar at runtime, or
-- export it before launching:
+- export it before launching. Examples:
 
 ```bash
+export OPENAI_API_KEY="your_key_here"
 export GEMINI_API_KEY="your_key_here"
-/usr/local/bin/python3 dash_job_workbench.py
+python app.py
 ```
+
+Inside the app, choose the provider, paste the key, click `Test AI`, and select a model from the dropdown. OpenAI text models can be retrieved automatically after the key is verified.
 
 AI features include:
 
