@@ -1,5 +1,10 @@
+# fly.toml app configuration file generated for job-search-workbench on 2026-05-15T05:02:02Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
 app = 'job-search-workbench'
-primary_region = 'sjc'
+primary_region = 'ord'
 
 [build]
   dockerfile = 'Dockerfile'
