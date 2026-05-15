@@ -89,7 +89,7 @@ def _setup_section() -> html.Div:
                     dcc.Textarea(
                         id="profile-text",
                         className="textarea",
-                        placeholder="Or paste your LinkedIn bio, resume text, portfolio notes…",
+                        placeholder="Or paste resume text, LinkedIn bio, portfolio notes… or a URL (https://yourportfolio.com)",
                         style={"minHeight": "110px"},
                     ),
                 ]),

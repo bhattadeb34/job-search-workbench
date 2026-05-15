@@ -477,7 +477,9 @@ def extract_profile_from_upload(contents: str, filename: str) -> str:
 def extract_profile_from_text(value: str) -> str:
     text = (value or "").strip()
     if not text:
-        raise ValueError("Paste profile text or upload a file.")
+        raise ValueError("Paste profile text, a URL, or upload a file.")
+    if re.match(r"https?://", text):
+        return fetch_profile_from_url(text)
     return text
 
 
